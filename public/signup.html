@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up - Media Share</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <nav>
+    <a class="nav-brand" href="/">Media<span>Share</span></a>
+    <div class="nav-actions" data-auth-nav>
+      <a class="btn btn-ghost" href="/login">Login</a>
+      <a class="btn btn-primary" href="/upload">+ Upload</a>
+    </div>
+  </nav>
+
+  <main class="auth-main">
+    <section class="auth-panel">
+      <div class="auth-copy">
+        <span class="eyebrow">Join MediaShare</span>
+        <h1>Create your account.</h1>
+        <p>Start a personal space for the photos, places, and stories you want to share.</p>
+      </div>
+
+      <div class="form-card auth-card">
+        <div class="error-msg" id="errorMsg"></div>
+
+        <form id="signupForm">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" name="name" placeholder="Your name" autocomplete="name" required />
+          </div>
+
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required />
+          </div>
+
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" name="password" placeholder="At least 8 characters" autocomplete="new-password" minlength="8" required />
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full" id="submitBtn">Create Account</button>
+        </form>
+
+        <p class="auth-switch">Already have an account? <a href="/login">Login</a></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    const form = document.getElementById('signupForm');
+    const errorMsg = document.getElementById('errorMsg');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      hideError();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating account...';
+
+      const payload = Object.fromEntries(new FormData(form));
+
+      try {
+        const data = await requestJson('/api/signup', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        setAuthSession(data.token, data.user);
+        window.location.href = '/';
+      } catch (err) {
+        showError(err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Account';
+      }
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = 'block';
+    }
+
+    function hideError() {
+      errorMsg.style.display = 'none';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photo – Media Share</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav>
+    <a class="nav-brand" href="/">Media<span>Share</span></a>
+    <div class="nav-actions" data-auth-nav>
+      <a class="btn btn-ghost" href="/login">Login</a>
+      <a class="btn btn-primary" href="/upload">＋ Upload</a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main>
+    <a class="back-link" href="/">← Back to gallery</a>
+
+    <div id="content">
+      <div class="spinner"></div>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    const id = location.pathname.split('/').pop();
+
+    async function loadImage() {
+      const content = document.getElementById('content');
+      try {
+        await refreshAuthUser();
+        const currentUser = getStoredUser();
+        const isAdmin = currentUser?.role === 'admin';
+        const res = await fetch(`/api/images/${id}`);
+        if (!res.ok) throw new Error('Image not found');
+        const img = await res.json();
+
+        document.title = `${img.title} – Media Share`;
+
+        content.innerHTML = `
+          <div class="detail-layout">
+            <div class="detail-image">
+              <img src="${img.filepath}" alt="${escHtml(img.title)}" />
+            </div>
+
+            <div class="detail-info">
+              <h1 class="detail-title">${escHtml(img.title)}</h1>
+
+              <div class="detail-meta">
+                ${img.genre ? `
+                  <div class="meta-item">
+                    <span class="meta-label">Genre</span>
+                    <span class="card-genre" style="align-self:start">${escHtml(img.genre)}</span>
+                  </div>` : ''}
+
+                ${img.location ? `
+                  <div class="meta-item">
+                    <span class="meta-label">📍 Location</span>
+                    <span class="meta-value">${escHtml(img.location)}</span>
+                  </div>` : ''}
+
+                ${img.datetime ? `
+                  <div class="meta-item">
+                    <span class="meta-label">🗓 Date &amp; Time</span>
+                    <span class="meta-value">${formatDate(img.datetime)}</span>
+                  </div>` : ''}
+
+                <div class="meta-item">
+                  <span class="meta-label">📅 Uploaded</span>
+                  <span class="meta-value">${formatDate(img.createdAt)}</span>
+                </div>
+              </div>
+
+              ${img.description ? `
+                <hr class="divider" />
+                <p class="detail-desc">${escHtml(img.description)}</p>
+              ` : ''}
+
+              ${isAdmin ? `
+                <hr class="divider" />
+                <details class="admin-edit">
+                  <summary>Edit Metadata</summary>
+                  <div class="error-msg" id="editError"></div>
+                  <form id="adminEditForm">
+                    <div class="form-group">
+                      <label>Title *</label>
+                      <input type="text" name="title" value="${escAttr(img.title)}" required />
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label>Location</label>
+                        <input type="text" name="location" value="${escAttr(img.location)}" />
+                      </div>
+                      <div class="form-group">
+                        <label>Date &amp; Time</label>
+                        <input type="datetime-local" name="datetime" value="${escAttr(toDateTimeLocalValue(img.datetime))}" />
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label>Genre</label>
+                      <select name="genre">${genreOptions(img.genre)}</select>
+                    </div>
+                    <div class="form-group">
+                      <label>Description</label>
+                      <textarea name="description">${escHtml(img.description)}</textarea>
+                    </div>
+                    <button class="btn btn-primary btn-full" type="submit">Save Changes</button>
+                  </form>
+                </details>
+                <button class="btn btn-delete" onclick="deleteImage('${img.id}')">
+                🗑 Delete Photo
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+        if (isAdmin) setupEditForm(img.id);
+      } catch (err) {
+        content.innerHTML = `
+          <div style="text-align:center; padding:80px 0; color:var(--muted)">
+            <div style="font-size:2.5rem; margin-bottom:16px">🔍</div>
+            <h2 style="font-family:'Playfair Display',serif; color:var(--text); margin-bottom:8px">Photo not found</h2>
+            <p>This image doesn't exist or may have been removed.</p>
+            <a href="/" style="display:inline-block; margin-top:20px; color:var(--accent)">← Back to gallery</a>
+          </div>`;
+      }
+    }
+
+    function escHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function escAttr(str) {
+      return escHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    function toDateTimeLocalValue(dt) {
+      if (!dt) return '';
+      const date = new Date(dt);
+      if (Number.isNaN(date.getTime())) return String(dt).slice(0, 16);
+      const offsetMs = date.getTimezoneOffset() * 60000;
+      return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+    }
+
+    function genreOptions(selectedGenre) {
+      const genres = ['', 'Landscape', 'Portrait', 'Street', 'Wildlife', 'Architecture', 'Abstract', 'Travel', 'Food', 'Night', 'Other'];
+      return genres.map(genre => {
+        const label = genre || 'Select a genre';
+        const selected = genre === (selectedGenre || '') ? ' selected' : '';
+        return `<option value="${escAttr(genre)}"${selected}>${escHtml(label)}</option>`;
+      }).join('');
+    }
+
+    function setupEditForm(id) {
+      const form = document.getElementById('adminEditForm');
+      const editError = document.getElementById('editError');
+      if (!form) return;
+
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        editError.style.display = 'none';
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+
+        try {
+          const payload = Object.fromEntries(new FormData(form));
+          await requestJson(`/api/images/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+          });
+          await loadImage();
+        } catch (err) {
+          editError.textContent = err.message;
+          editError.style.display = 'block';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Save Changes';
+        }
+      });
+    }
+
+    function formatDate(dt) {
+      if (!dt) return '';
+      try { return new Date(dt).toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' }); }
+      catch { return dt; }
+    }
+
+    async function deleteImage(id) {
+      if (!confirm('Are you sure you want to delete this photo? This cannot be undone.')) return;
+
+      try {
+        await requestJson(`/api/images/${id}`, { method: 'DELETE' });
+        // Redirect back to gallery after deletion
+        window.location.href = '/';
+      } catch (err) {
+        alert('Failed to delete: ' + err.message);
+      }
+    }
+
+    loadImage();
+  </script>
+</body>
+</html>

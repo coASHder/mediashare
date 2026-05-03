@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upload – Media Share</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav>
+    <a class="nav-brand" href="/">Media<span>Share</span></a>
+    <div class="nav-actions" data-auth-nav>
+      <a class="btn btn-ghost" href="/login">Login</a>
+      <a class="btn btn-primary" href="/upload">＋ Upload</a>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main>
+    <a class="back-link" href="/">← Back to gallery</a>
+
+    <div class="page-header">
+      <h1>Upload a Photo</h1>
+      <p>Share your images with the world.</p>
+    </div>
+
+    <div class="form-card">
+      <div class="error-msg" id="errorMsg"></div>
+
+      <form id="uploadForm">
+
+        <!-- Drop zone -->
+        <div class="form-group">
+          <label>Image *</label>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" name="image" id="imageInput" accept="image/*" required />
+            <div class="drop-icon">📷</div>
+            <p><span class="accent">Choose a file</span> or drag &amp; drop here</p>
+            <p style="font-size:0.78rem; margin-top:4px">JPG, PNG, GIF, WEBP up to 20 MB</p>
+            <div class="drop-preview" id="dropPreview"></div>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="form-group">
+          <label>Title *</label>
+          <input type="text" name="title" placeholder="Give your photo a title" required />
+        </div>
+
+        <!-- Location + Datetime -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>Location</label>
+            <input type="text" name="location" placeholder="e.g. Paris, France" />
+          </div>
+          <div class="form-group">
+            <label>Date &amp; Time</label>
+            <input type="datetime-local" name="datetime" />
+          </div>
+        </div>
+
+        <!-- Genre -->
+        <div class="form-group">
+          <label>Genre</label>
+          <select name="genre">
+            <option value="">— Select a genre —</option>
+            <option>Landscape</option>
+            <option>Portrait</option>
+            <option>Street</option>
+            <option>Wildlife</option>
+            <option>Architecture</option>
+            <option>Abstract</option>
+            <option>Travel</option>
+            <option>Food</option>
+            <option>Night</option>
+            <option>Other</option>
+          </select>
+        </div>
+
+        <!-- Description -->
+        <div class="form-group">
+          <label>Description</label>
+          <textarea name="description" placeholder="Tell the story behind this photo…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" id="submitBtn">
+          Upload Photo
+        </button>
+
+      </form>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    const form      = document.getElementById('uploadForm');
+    const imageInput = document.getElementById('imageInput');
+    const dropZone  = document.getElementById('dropZone');
+    const dropPreview = document.getElementById('dropPreview');
+    const errorMsg  = document.getElementById('errorMsg');
+    const submitBtn = document.getElementById('submitBtn');
+
+    if (!getAuthToken()) {
+      window.location.href = '/login';
+    }
+
+    // Preview image on select
+    imageInput.addEventListener('change', () => showPreview(imageInput.files[0]));
+
+    // Drag & drop highlight
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) {
+        imageInput.files = e.dataTransfer.files;
+        showPreview(e.dataTransfer.files[0]);
+      }
+    });
+
+    function showPreview(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        dropPreview.innerHTML = `<img src="${e.target.result}" alt="preview" />`;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Form submit
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      hideError();
+
+      if (!imageInput.files[0]) { showError('Please select an image file.'); return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Uploading…';
+
+      const formData = new FormData(form);
+
+      try {
+        const res  = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+          body: formData
+        });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+        showToast('✓ Photo uploaded!', 'success');
+        setTimeout(() => window.location.href = '/', 1200);
+      } catch (err) {
+        showError(err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Upload Photo';
+      }
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = 'block';
+    }
+    function hideError() { errorMsg.style.display = 'none'; }
+
+    function showToast(msg, type = '') {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = `toast ${type} show`;
+      setTimeout(() => t.className = 'toast', 3000);
+    }
+  </script>
+</body>
+</html>

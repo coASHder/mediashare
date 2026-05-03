@@ -1,0 +1,14 @@
+{
+  "name": "mediashare",
+  "version": "1.0.0",
+  "description": "Simple image sharing website",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^2.0.0",
+    "mongodb": "^6.5.0"
+  }
+}
