@@ -4,6 +4,7 @@ const path       = require('path');
 const fs         = require('fs');
 const crypto     = require('crypto');
 const { MongoClient, ObjectId } = require('mongodb');
+const { BlobServiceClient } = require('@azure/storage-blob');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -14,10 +15,12 @@ const PORT = process.env.PORT || 3000;
 //   mongodb+srv://<user>:<password>@cluster0.xxxxx.mongodb.net/mediashare
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017';
 const DB_NAME   = 'mediashare';
+const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
+const AZURE_STORAGE_CONTAINER_NAME = process.env.AZURE_STORAGE_CONTAINER_NAME || 'media';
 
 let imagesCollection; // set after connection
 let usersCollection;
-let sessionsCollection;
+let blobContainerClient;
 
 async function connectDB() {
   const client = new MongoClient(MONGO_URI);
@@ -25,23 +28,14 @@ async function connectDB() {
   const db = client.db(DB_NAME);
   imagesCollection = db.collection('images');
   usersCollection = db.collection('users');
-  sessionsCollection = db.collection('sessions');
   await usersCollection.createIndex({ email: 1 }, { unique: true });
-  await sessionsCollection.createIndex({ token: 1 }, { unique: true });
-  await sessionsCollection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
   await usersCollection.updateMany({ email: { $ne: 'ash@gmail.com' }, role: { $exists: false } }, { $set: { role: 'standard' } });
   await usersCollection.updateOne({ email: 'ash@gmail.com' }, { $set: { role: 'admin' } });
   console.log(`✅ Connected to MongoDB — database: "${DB_NAME}"`);
 }
 
 // ── File upload setup (multer) ────────────────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename:    (req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, unique + path.extname(file.originalname));
-  }
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -127,7 +121,7 @@ app.get('/api/me', async (req, res) => {
 app.post('/api/logout', async (req, res) => {
   try {
     const token = getBearerToken(req);
-    if (token) await sessionsCollection.deleteOne({ token });
+    if (token) await usersCollection.updateOne({ sessionToken: token }, { $unset: { sessionToken: '', sessionCreatedAt: '' } });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -160,13 +154,16 @@ app.post('/api/upload', requireUser, upload.single('image'), async (req, res) =>
   if (!req.file) return res.status(400).json({ error: 'No image file provided' });
   try {
     const { title, location, datetime, genre, description } = req.body;
+    const storedFile = await storeUploadedFile(req.file);
     const doc = {
       title,
       location:    location    || '',
       datetime:    datetime    || '',
       genre:       genre       || '',
       description: description || '',
-      filepath:    '/uploads/' + req.file.filename,
+      filepath:    storedFile.url,
+      blobName:    storedFile.blobName,
+      storageType: storedFile.storageType,
       createdAt:   new Date(),
       userId:      req.user._id,
       userName:    req.user.name
@@ -216,8 +213,7 @@ app.delete('/api/images/:id', requireAdmin, async (req, res) => {
     const image = await imagesCollection.findOne({ _id: new ObjectId(req.params.id) });
     if (!image) return res.status(404).json({ error: 'Image not found' });
 
-    const filePath = path.join(__dirname, image.filepath);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await removeStoredFile(image);
 
     await imagesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
     res.json({ success: true });
@@ -243,6 +239,58 @@ function normalise(doc) {
 }
 
 // ── Start server ──────────────────────────────────────────────────────────────
+function getBlobContainerClient() {
+  if (!AZURE_STORAGE_CONNECTION_STRING) return null;
+  if (!blobContainerClient) {
+    const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
+    blobContainerClient = blobServiceClient.getContainerClient(AZURE_STORAGE_CONTAINER_NAME);
+  }
+  return blobContainerClient;
+}
+
+async function storeUploadedFile(file) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const filename = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
+  const containerClient = getBlobContainerClient();
+
+  if (containerClient) {
+    await containerClient.createIfNotExists();
+    const blockBlobClient = containerClient.getBlockBlobClient(filename);
+    await blockBlobClient.uploadData(file.buffer, {
+      blobHTTPHeaders: { blobContentType: file.mimetype }
+    });
+    return {
+      url: blockBlobClient.url,
+      blobName: filename,
+      storageType: 'azure-blob'
+    };
+  }
+
+  const uploadDir = path.join(__dirname, 'uploads');
+  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.writeFileSync(path.join(uploadDir, filename), file.buffer);
+  return {
+    url: '/uploads/' + filename,
+    blobName: filename,
+    storageType: 'local'
+  };
+}
+
+async function removeStoredFile(image) {
+  if (image.storageType === 'azure-blob' && image.blobName) {
+    const containerClient = getBlobContainerClient();
+    if (containerClient) {
+      await containerClient.deleteBlob(image.blobName).catch(() => {});
+    }
+    return;
+  }
+
+  if (image.filepath && image.filepath.startsWith('/uploads/')) {
+    const filePath = path.join(__dirname, image.filepath);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  }
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
@@ -258,7 +306,10 @@ function verifyPassword(password, stored) {
 
 async function createSession(userId) {
   const token = crypto.randomBytes(32).toString('hex');
-  await sessionsCollection.insertOne({ token, userId, createdAt: new Date() });
+  await usersCollection.updateOne(
+    { _id: userId },
+    { $set: { sessionToken: token, sessionCreatedAt: new Date() } }
+  );
   return token;
 }
 
@@ -270,9 +321,7 @@ function getBearerToken(req) {
 async function getUserFromRequest(req) {
   const token = getBearerToken(req);
   if (!token) return null;
-  const session = await sessionsCollection.findOne({ token });
-  if (!session) return null;
-  return usersCollection.findOne({ _id: session.userId });
+  return usersCollection.findOne({ sessionToken: token });
 }
 
 async function requireUser(req, res, next) {

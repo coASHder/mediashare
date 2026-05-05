@@ -101,4 +101,23 @@ Each uploaded image creates one document in the `mediashare.images` collection:
 }
 ```
 
-Image **files** are stored in the `uploads/` folder on disk.
+Image files are stored in Azure Blob Storage when the Azure storage environment variables are configured. During local development without Azure storage settings, the app falls back to the `uploads/` folder on disk.
+
+## Azure deployment settings
+
+Set these App Service environment variables before deploying:
+
+```text
+MONGO_URI=<Azure Cosmos DB MongoDB connection string>
+AZURE_STORAGE_CONNECTION_STRING=<Azure Storage account connection string>
+AZURE_STORAGE_CONTAINER_NAME=media
+NODE_ENV=production
+```
+
+Recommended Azure services:
+
+- Azure App Service for the Node.js/Express website and REST API
+- Azure Blob Storage container named `media` for image files
+- Azure Cosmos DB with MongoDB compatibility for `images` and `users` metadata
+- GitHub Actions through App Service Deployment Center for CI/CD
+- Application Insights for monitoring
