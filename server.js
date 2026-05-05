@@ -28,7 +28,6 @@ async function connectDB() {
   const db = client.db(DB_NAME);
   imagesCollection = db.collection('images');
   usersCollection = db.collection('users');
-  await usersCollection.createIndex({ email: 1 }, { unique: true });
   await usersCollection.updateMany({ email: { $ne: 'ash@gmail.com' }, role: { $exists: false } }, { $set: { role: 'standard' } });
   await usersCollection.updateOne({ email: 'ash@gmail.com' }, { $set: { role: 'admin' } });
   console.log(`✅ Connected to MongoDB — database: "${DB_NAME}"`);
@@ -73,6 +72,10 @@ app.post('/api/signup', async (req, res) => {
     }
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    const existingUser = await usersCollection.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
     const user = {
