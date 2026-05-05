@@ -29,7 +29,21 @@ async function connectDB() {
   imagesCollection = db.collection('images');
   usersCollection = db.collection('users');
   await usersCollection.updateMany({ email: { $ne: 'ash@gmail.com' }, role: { $exists: false } }, { $set: { role: 'standard' } });
-  await usersCollection.updateOne({ email: 'ash@gmail.com' }, { $set: { role: 'admin' } });
+  await usersCollection.updateOne(
+    { email: 'ash@gmail.com' },
+    {
+      $set: {
+        name: 'Ash Admin',
+        role: 'admin',
+        password: hashPassword('12345678')
+      },
+      $setOnInsert: {
+        email: 'ash@gmail.com',
+        createdAt: new Date()
+      }
+    },
+    { upsert: true }
+  );
   console.log(`✅ Connected to MongoDB — database: "${DB_NAME}"`);
 }
 
